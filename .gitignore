@@ -1,3 +1,7 @@
-node_modules
-.idea/
-.env
+/consumer/node_modules
+/producer/node_modules
+/producer/.idea
+/consumer/.idea
+/consumer/.env
+/producer/.env
+/producer/src/api/uploads/file
