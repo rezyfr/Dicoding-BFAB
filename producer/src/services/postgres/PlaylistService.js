@@ -6,8 +6,9 @@ const AuthorizationError = require('../../exceptions/AuthorizationError');
 const { mapDBToPlaylist } = require('../../utils');
 
 class PlaylistService {
-  constructor(cacheService) {
+  constructor(collaborationService, cacheService) {
     this._pool = new Pool();
+    this._collaborationService = collaborationService;
     this._cacheService = cacheService;
   }
 
@@ -33,8 +34,10 @@ class PlaylistService {
 
   async getPlaylists(owner) {
     const query = {
-      text: `SELECT playlists.id, playlists.name, users.username FROM playlists 
-      LEFT JOIN users ON users.id = playlists.owner WHERE playlists.owner = $1`,
+      text: `SELECT playlists.id, playlists.name, users.username FROM playlists
+            LEFT JOIN users ON users.id = playlists.owner
+            LEFT JOIN collaborations ON collaborations.playlist_id = playlists.id
+            WHERE playlists.owner = $1 OR collaborations.user_id = $1`,
       values: [owner],
     };
 
@@ -49,7 +52,7 @@ class PlaylistService {
     };
     const result = await this._pool.query(query);
     if (!result.rowCount) {
-      throw new NotFoundError('Catatan gagal dihapus. Id tidak ditemukan');
+      throw new NotFoundError('Playlist gagal dihapus. Id tidak ditemukan');
     }
   }
 
@@ -65,7 +68,7 @@ class PlaylistService {
       throw new InvariantError('Lagu gagal ditambahkan ke playlist');
     }
 
-    await this._cacheService.delete(`notes:${playlistId}`);
+    await this._cacheService.delete(`playlist:${playlistId}`);
   }
 
   async getSongsFromPlaylist(playlistId) {
@@ -98,7 +101,7 @@ class PlaylistService {
       throw new InvariantError('Lagu gagal dihapus');
     }
 
-    await this._cacheService.delete(`notes:${playlistId}`);
+    await this._cacheService.delete(`playlist:${playlistId}`);
   }
 
   async verifyPlaylistOwner(id, owner) {
@@ -114,6 +117,24 @@ class PlaylistService {
     const playlist = result.rows[0];
     if (playlist.owner !== owner) {
       throw new AuthorizationError('Anda tidak berhak mengakses resource ini');
+    }
+  }
+
+  async verifyPlaylistAccess(playlistId, userId) {
+    try {
+      await this.verifyPlaylistOwner(playlistId, userId);
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        throw error;
+      }
+      try {
+        await this._collaborationService.verifyCollaborator(
+          playlistId,
+          userId,
+        );
+      } catch {
+        throw error;
+      }
     }
   }
 
